@@ -1,6 +1,7 @@
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.file.Files;
 
 public class Main {
 
@@ -47,42 +48,53 @@ public class Main {
             // Connect to the web server endpoint
             URL serverUrl =  new URL(newargs[6]);
             HttpURLConnection urlConnection = (HttpURLConnection) serverUrl.openConnection();
-
+            String boundary = Long.toHexString(System.currentTimeMillis());
             // Indicate that we want to write to the HTTP request body
             urlConnection.setDoOutput(true);
-            urlConnection.setRequestMethod("PUT");
-            urlConnection.setDoOutput(true);
-            urlConnection.setRequestProperty("Host", "mic_production.storage.googleapis.com");
-            urlConnection.setRequestProperty("User-Agent", "Mozilla/5.0");
-            urlConnection.setRequestProperty("Content-Type", "application/zip");
+            urlConnection.setRequestMethod("POST");
+            urlConnection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
 
             StringBuilder postData = new StringBuilder();
             for (String myStr : attr) {
                 if (postData.length() != 0) postData.append("&");
                 postData.append(myStr);
             }
-            postData.append("&_method=put");
 
             OutputStream os = urlConnection.getOutputStream();
             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os));
 
-            writer.write(postData.toString());
-            writer.flush();
+            //writer.write(postData.toString());
 
+            String CRLF = "\r\n";
             // Write the actual file contents
-            FileInputStream inputStreamToLogFile = new FileInputStream(fileToUpload);
+            /*FileInputStream inputStreamToLogFile = new FileInputStream(fileToUpload);
 
             int bytesRead;
             byte[] dataBuffer = new byte[1024];
             while((bytesRead = inputStreamToLogFile.read(dataBuffer)) != -1) {
                 os.write(dataBuffer, 0, bytesRead);
             }
-
+            os.flush();*/
             writer.flush();
 
+            PrintWriter filewriter = new PrintWriter(new OutputStreamWriter(os, "UTF-8"), true);
+            filewriter.write(postData.toString());
+            // Send binary file.
+            filewriter.append("--" + boundary).append(CRLF);
+            filewriter.append("Content-Disposition: form-data; name=\"file\"; filename=\"" + fileToUpload.getName() + "\"").append(CRLF);
+            filewriter.append("Content-Type: application/x-zip-compressed").append(CRLF);
+            filewriter.append(CRLF).flush();
+            Files.copy(fileToUpload.toPath(), os);
+
+            os.flush(); // Important before continuing with writer!
+            filewriter.append(CRLF).flush(); // CRLF is important! It indicates end of boundary.
+
+            // End of multipart/form-data.
+            filewriter.append("--" + boundary + "--").append(CRLF).flush();
+
             // Close the streams
+            filewriter.close();
             os.close();
-            writer.close();
 
             int responseCode = urlConnection.getResponseCode();
             //System.out.println("POST Response Code :: " + responseCode);
@@ -111,7 +123,7 @@ public class Main {
             attr = new String[2];
             attr[0] = "ack=zip";
             attr[1] = "id="+newargs[0];
-            mds.postCall("file_" + newargs[0],  attr);
+            //mds.postCall("file_" + newargs[0],  attr);
 
         } catch (IOException e) {
             e.printStackTrace();
